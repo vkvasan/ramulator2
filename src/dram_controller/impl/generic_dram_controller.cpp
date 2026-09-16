@@ -89,6 +89,8 @@ class GenericDRAMController final : public IDRAMController, public Implementatio
 
     /* Bank-prep priority tier (RAMULATOR_SCHED_BANKPREP=1), see 2.2.0c. */
     bool   s_bankprep = false;
+    bool   s_keep_open = false;
+    size_t s_keepopen_skips = 0;
     size_t s_bankprep_act = 0, s_bankprep_pre = 0;
     int    m_cmd_act = -1, m_cmd_pre = -1, m_cmd_rd = -1, m_cmd_wr = -1;
     template <class V> static int bank_key(const V& v) {
@@ -136,14 +138,40 @@ class GenericDRAMController final : public IDRAMController, public Implementatio
     ReqBuffer::iterator best_skipping(ReqBuffer& buffer) {
       for (auto& req : buffer)
         req.command = m_dram->get_preq_command(req.final_command, req.addr_vec);
-      auto cand = buffer.end();
-      for (auto it = buffer.begin(); it != buffer.end(); it++) {
-        if (!s_skip.empty() &&
-            std::find(s_skip.begin(), s_skip.end(), it->addr) != s_skip.end())
-          continue;
-        cand = (cand == buffer.end()) ? it : m_scheduler->compare(cand, it);
+      /* KEEPOPEN (RAMULATOR_SCHED_KEEPOPEN=1): never select a request that would
+         precharge a bank still holding a queued request for its OPEN row.
+         The scheduler's row-hit tier cannot prevent this, because it sits below
+         the readiness test: a hit blocked by column timing fails check_ready(),
+         so the competing PRE wins on readiness and the row-hit tier is never
+         consulted. Measured effect of that gap: 750,188 precharges per run
+         discard a row wanted back ~25 cycles later. This pass sits above
+         readiness and needs the whole buffer, which compare() cannot see. */
+      static std::vector<char> hit_bank(4096);
+      bool guard = false;
+      if (s_keep_open) {
+        std::fill(hit_bank.begin(), hit_bank.end(), 0);
+        for (auto& req : buffer)
+          if (req.command == req.final_command) {
+            hit_bank[bank_key(req.addr_vec) & 4095] = 1; guard = true;
+          }
       }
-      return cand;
+      for (int pass = 0; pass < 2; pass++) {
+        auto cand = buffer.end();
+        for (auto it = buffer.begin(); it != buffer.end(); it++) {
+          if (!s_skip.empty() &&
+              std::find(s_skip.begin(), s_skip.end(), it->addr) != s_skip.end())
+            continue;
+          if (pass == 0 && guard && it->command != it->final_command &&
+              m_dram->check_rowbuffer_open(it->final_command, it->addr_vec) &&
+              hit_bank[bank_key(it->addr_vec) & 4095]) {
+            s_keepopen_skips++;
+            continue;                       /* would strand a queued hit */
+          }
+          cand = (cand == buffer.end()) ? it : m_scheduler->compare(cand, it);
+        }
+        if (cand != buffer.end() || !guard) return cand;   /* pass 1 = unguarded fallback */
+      }
+      return buffer.end();
     }
 
 
@@ -440,6 +468,8 @@ class GenericDRAMController final : public IDRAMController, public Implementatio
                      s_conf_k_by_w, s_conf_k_by_k, s_conf_w_by_w, s_conf_w_by_k);
         if (s_bankprep)
           spdlog::info("BANKPREP: early ACT {} early PRE {}", s_bankprep_act, s_bankprep_pre);
+        if (s_keep_open)
+          spdlog::info("KEEPOPEN: precharges suppressed {}", s_keepopen_skips);
       }
       if (s_pre_total) {
         size_t matched = s_pre_act_same + s_pre_act_other;

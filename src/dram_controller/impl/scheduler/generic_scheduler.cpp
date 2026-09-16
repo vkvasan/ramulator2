@@ -111,26 +111,6 @@ class FRFCFS : public IScheduler, public Implementation {
         req.command = m_dram->get_preq_command(req.final_command, req.addr_vec);
       }
 
-      if (m_keep_open) {
-        /* Pass 1: which banks have a queued request that wants the OPEN row? */
-        std::fill(m_hit_banks.begin(), m_hit_banks.end(), 0);
-        bool any_hit = false;
-        for (auto& r : buffer)
-          if (r.command == r.final_command) { m_hit_banks[bkey(r.addr_vec)] = 1; any_hit = true; }
-        if (any_hit) {
-          /* Pass 2: choose, excluding precharges that would strand those hits.
-             "needs a PRE" == the bank is open, but on the wrong row. */
-          auto cand = buffer.end();
-          for (auto it = buffer.begin(); it != buffer.end(); it++) {
-            const bool needs_pre =
-                 m_dram->check_rowbuffer_open(it->final_command, it->addr_vec) &&
-                !m_dram->check_rowbuffer_hit (it->final_command, it->addr_vec);
-            if (needs_pre && m_hit_banks[bkey(it->addr_vec)]) continue;
-            cand = (cand == buffer.end()) ? it : compare(cand, it);
-          }
-          if (cand != buffer.end()) return cand;
-        }
-      }
       auto candidate = buffer.begin();
       for (auto next = std::next(buffer.begin(), 1); next != buffer.end(); next++) {
         candidate = compare(candidate, next);
