@@ -21,6 +21,7 @@ struct mem_fetch {
   bool request;
   void* origin_data;
   int size;
+  uint32_t operand = 0;   /* ONNXim operand tag, forwarded into Ramulator::Request::operand */
   void set_reply() { request = false; }
   bool is_write() const { return write; }
 };
@@ -48,6 +49,9 @@ class Ramulator2 {
   mem_fetch *return_queue_pop();
   void return_queue_push_back(mem_fetch *mf);
   bool returnq_full() const;
+  /* Queue depths, to separate unserved backlog from served-but-uncollected. */
+  size_t pending_requests() const { return request_queue.size(); }
+  size_t pending_returns() const { return return_queue.size(); }
 
   // virtual bool is_active();
   // virtual void set_dram_power_stats(unsigned &cmd, unsigned &activity,

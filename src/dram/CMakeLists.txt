@@ -12,6 +12,7 @@ target_sources(
   impl/DDR5.cpp
   impl/LPDDR5.cpp
   impl/LPDDR5X.cpp
+  impl/LPDDR6.cpp
   impl/HBM.cpp
   impl/HBM2.cpp
   impl/HBM2_64B.cpp

@@ -77,8 +77,10 @@ void Ramulator2::cycle() {
       mf->set_reply();
       return_queue.push(mf);
     };
+    /* source_id is otherwise unused in the memory system; carry the ONNXim
+       operand tag in it so the controller can split weights / KV / act. */
     bool success = ramulator2_frontend->receive_external_requests(
-        mf->is_write() ? 1 : 0, mf->addr, 0, callback);
+        mf->is_write() ? 1 : 0, mf->addr, (int)mf->operand, callback);
     if(success)
       request_queue.pop();
   }

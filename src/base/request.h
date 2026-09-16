@@ -24,6 +24,8 @@ struct Request {
 
   int type_id = -1;    // An identifier for the type of the request
   int source_id = -1;  // An identifier for where the request is coming from (e.g., which core)
+  int operand = 0;     // ONNXim Instruction::operand_id of the MOVIN that produced it (0 = untagged);
+                       // lets the controller split weights / KV / activations without an address threshold
 
   bool is_first = true;      // Whether this is the first command of the request
   int command = -1;          // The command that need to be issued to progress the request

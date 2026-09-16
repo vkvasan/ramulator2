@@ -36,10 +36,18 @@ class ReadWriteTrace : public IFrontEnd, public Implementation {
     };
 
 
+    size_t m_drain_ticks = 0;
     void tick() override {
-      const Trace& t = m_trace[m_curr_trace_idx];
-      m_memory_system->send({t.addr_vec, t.is_write ? Request::Type::Read : Request::Type::Write});
-      m_curr_trace_idx = (m_curr_trace_idx + 1) % m_trace_length;
+      /* Fixed: stock sent the trace forever (modulo wrap) and mapped 'W' to
+         Read / 'R' to Write. Send each line once, in order, retrying a line
+         the memory system rejects; then drain. */
+      if (m_curr_trace_idx < m_trace_length) {
+        const Trace& t = m_trace[m_curr_trace_idx];
+        if (m_memory_system->send({t.addr_vec, t.is_write ? Request::Type::Write : Request::Type::Read}))
+          m_curr_trace_idx++;
+      } else {
+        m_drain_ticks++;
+      }
     };
 
 
@@ -90,9 +98,10 @@ class ReadWriteTrace : public IFrontEnd, public Implementation {
       m_trace_length = m_trace.size();
     };
 
-    // TODO: FIXME
+    /* Finished once every line was sent and the memory system had 20k
+       frontend ticks to drain the pipeline. */
     bool is_finished() override {
-      return true; 
+      return m_curr_trace_idx >= m_trace_length && m_drain_ticks > 20000;
     };    
 };
 
